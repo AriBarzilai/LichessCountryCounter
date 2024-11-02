@@ -163,30 +163,31 @@ def process_player_colors(game, username):
         opponent_color = 'white'   
     return color, opponent_color
 
-def estimate_time_to_completion(username, max_games: int):
-    base_url = f'https://lichess.org/api/user/{username}'
-    headers = {
-        'Accept': 'application/json',
-        'Authorization': f'Bearer {api_key}'
-    }
-    try: 
+def estimate_time_to_completion(username, max_games: int, all=False):
+    try:
+        base_url = f'https://lichess.org/api/user/{username}'
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {api_key}'
+        }
         response = requests.get(base_url, headers=headers)
-        seconds = max_games / 30
-        return seconds
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 404:
-            print("Please verify that the username is correct and try again.")
-            return False
+        if response.status_code == 200:
+            if all:
+                max_games = response.json()['count']['all']
+            seconds = max_games / 30
+            return seconds
         else:
-            print("Oops! Something went wrong. Please try again.")
-            return False
+            print(f'Error: {response.status_code}')
+            response.raise_for_status()
+    except Exception as e:
+        print(f"An error occurred. Please verify that user '{username}' exists.")
 
              
 def main():
     args = parser.parse_args()
     seconds = estimate_time_to_completion(args.username, args.max_games)
     if seconds:
-        print ("Loading... Estimated time to completion: " + str(seconds) + " seconds.")
+        print (f"Loading... Estimated time to completion: {20*seconds:.1f} seconds.")
         if args.all:
             flag_counts, avg_rating = process_games(args.username, moves=False)
         else:
