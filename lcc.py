@@ -23,6 +23,9 @@ parser.add_argument("username",
 parser.add_argument("-n", "--number",
                     help="Outputs only the top n most frequent countries. Default shows all.",
                     type=int)
+parser.add_argument('-hu', '--hide-unknown',
+                    help="Hides the number of games played against users with unknown flags.",
+                    action='store_true')
 parser.add_argument
 group = parser.add_mutually_exclusive_group()
 group.add_argument(
