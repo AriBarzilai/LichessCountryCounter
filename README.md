@@ -10,11 +10,20 @@ which can be generated [here](https://lichess.org/account/oauth/token/create). N
 
 Open a terminal such as CMD and navigate into the folder. Run lcc.py using the ``python lcc.py [username]`` command.
 
-### Optional modifiers:
 
-``-m`` or ``--max``: the maximum number of games to analyse. Default is 50.
+### Positional Arguments
 
-``-a`` or ``--all``: analyse all games (warning: this may take some time!).
+- `username`: The Lichess username whose games you'd like to analyze.
+
+### Options
+
+- `-h`, `--help`: Show this help message and exit.
+- `-v`, `--version`: Show the current version of the program.
+- `-q`, `--quiet`: Suppress all output except for the final execution result.
+- `-n NUMBER`, `--number NUMBER`: Output only the top `n` most frequent countries (default shows all).
+- `-hu`, `--hide-unknown`: Hide the number of games played against users with unknown flags.
+- `-m MAX_GAMES`, `--max-games MAX_GAMES`: Maximum number of games to analyze (default: 50).
+- `-a`, `--all`: Analyze all games.
 
 #### Example:
 
