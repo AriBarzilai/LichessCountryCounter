@@ -6,6 +6,7 @@ import argparse
 import requests
 import json
 from collections import Counter
+import time
 
 load_dotenv()
 
@@ -19,7 +20,11 @@ parser = argparse.ArgumentParser(
                     epilog="Please ensure you've set the OAUTH_2_LICHESS_KEY environment variable in the .env file. See the README for more information.")
 parser.add_argument("-v", "--version",
                     action='version',
-                    version='v1.01')
+                    version='v1.01',
+                    help="Show the current version of the program.")
+parser.add_argument("-q", "--quiet",
+                    help="Suppresses all output except for the final execution result.",
+                    action='store_true')
 parser.add_argument("username",
                     help="The lichess username whose games you'd like to analyse.",
                     type=str)
@@ -44,13 +49,14 @@ group.add_argument(
 )
 
 class SimpleTimeEstimator:
-    def __init__(self, username, max_games, all=False):
+    def __init__(self, username, max_games, all=False, is_quiet=False):
         self.current_games_analysed = 0
-        self.games_to_analyse, self.seconds_estimate = self.estimate_time_to_completion(username, max_games, all)
+        self.games_to_analyse, self.seconds_estimate = self.estimate_time_to_completion(username, max_games, all, is_quiet)
         self.current_update_benchmark = 0.05
         self.benchmark_increment = 0.05
+        self.start_time = time.time()
   
-    def estimate_time_to_completion(self, username, max_games: int, all=False):
+    def estimate_time_to_completion(self, username, max_games: int, all=False, is_quiet=False):
         try:
             base_url = f'https://lichess.org/api/user/{username}'
             headers = {
@@ -61,20 +67,22 @@ class SimpleTimeEstimator:
             if response.status_code == 200:
                 if all:
                     max_games = response.json()['count']['all']
-                seconds = max_games
+                seconds = max_games / (10/3)
                 return max_games, seconds
+            else:
+                response.raise_for_status()
         except requests.HTTPError as e:
-            if e.response.status_code == 404:
-                print(f"An error occurred. Please verify that user '{username}' exists.")
-            if e.response.status_code == 429:
-                print(f"You are being rate limited. Please try again later.")
-            print(e.response.text)
+            if not is_quiet:
+                if e.response.status_code == 404:
+                    print(f"An error occurred. Please verify that user '{username}' exists.")
+                print(e.response.text)
             exit(e.response.status_code)
             
-    def update(self, games_analysed):
+    def update(self, games_analysed, is_quiet=False):
         self.current_games_analysed = games_analysed
         if ((games_analysed / self.games_to_analyse)) >= self.current_update_benchmark:
-            print(f"{games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games)", end='\r')
+            if not is_quiet:
+                print(f"  {games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games) ", end='\r')
             self.current_update_benchmark += self.benchmark_increment
     
 def _extract_games(username: str, count):
@@ -106,7 +114,7 @@ def _print_games(games):
         print(game)
         print()
 
-def process_games(username: str, estimator: SimpleTimeEstimator, return_games=False, n=0, **params):
+def process_games(username: str, estimator: SimpleTimeEstimator, return_games=False, is_quiet=False, **params):
     """Download the games of a Lichess user.
     Possible query parameters available at https://lichess.org/api#tag/Games/operation/apiGamesUser
     
@@ -135,14 +143,15 @@ def process_games(username: str, estimator: SimpleTimeEstimator, return_games=Fa
                     results[flag] += 1
                 if return_games:
                     games.append(game_data)
-            estimator.update(games_analysed_count)
+            estimator.update(games_analysed_count, is_quiet)
         if return_games:
             return games, results, avg_opponent_rating
         else:
             return results, avg_opponent_rating
     except requests.HTTPError as e:
-        print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
-        print(e.response.text)
+        if not is_quiet:
+            print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
+            print(e.response.text)
         return results, avg_opponent_rating
 
 def process_game(username: str, game):
@@ -172,7 +181,7 @@ def process_game(username: str, game):
         'opponent_rating': opponent_rating
     }
 
-def extract_player_flag(username: str):
+def extract_player_flag(username: str, is_quiet=False):
     """Extract the country flag of a Lichess user.
     
     Args:
@@ -190,8 +199,9 @@ def extract_player_flag(username: str):
         except KeyError:
             return 'Unknown'
     except requests.HTTPError as e:
-        print(f'Error: {response.status_code}')
-        response.raise_for_status()
+        if not is_quiet:
+            print(f'Error: {response.status_code}')
+            response.raise_for_status()
 
 def process_player_colors(game, username):
     white_name = game['players']['white']['user']['name']    
@@ -214,17 +224,22 @@ def process_results(results: Counter, n: int, hide_unknown: bool):
              
 def main():
     args = parser.parse_args()
-    estimator = SimpleTimeEstimator(args.username, args.max_games, args.all)
-
+    is_quiet = False
+    estimator = SimpleTimeEstimator('xland44', '1', False, is_quiet)
+    
     if estimator.seconds_estimate:
-        print (f"Loading... Estimated time to completion: {estimator.seconds_estimate:.0f} seconds.")
+        if not is_quiet:
+            print (f"Loading... Estimated time to completion: {estimator.seconds_estimate:.0f} seconds.")
         if args.all:
-            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator,moves=False)
+            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, is_quiet=is_quiet, moves=False)
         else:
-            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, max=args.max_games, moves=False)
+            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, is_quiet=is_quiet, max=args.max_games, moves=False)
         flag_counts = process_results(flag_counts, args.number, args.hide_unknown)
+        if not is_quiet:
+            print(' ', end='\r')
+            print(f"Done! Time: {time.time() - estimator.start_time:.0f} seconds.".ljust(40))
+            print(f"Avg. Rating: {avg_rating:.0f}")
         print(flag_counts)
-        print(f"Avg. Rating: {avg_rating:.0f}")
 
 if __name__ == '__main__':
     main()
