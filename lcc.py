@@ -7,6 +7,7 @@ import requests
 import json
 from collections import Counter
 import time
+import time
 
 load_dotenv()
 
@@ -52,8 +53,10 @@ class SimpleTimeEstimator:
     def __init__(self, username, max_games, all=False, is_quiet=False):
         self.current_games_analysed = 0
         self.games_to_analyse, self.seconds_estimate = self.estimate_time_to_completion(username, max_games, all, is_quiet)
+        self.games_to_analyse, self.seconds_estimate = self.estimate_time_to_completion(username, max_games, all, is_quiet)
         self.current_update_benchmark = 0.05
         self.benchmark_increment = 0.05
+        self.start_time = time.time()
         self.start_time = time.time()
   
     def estimate_time_to_completion(self, username, max_games: int, all=False, is_quiet=False):
@@ -68,10 +71,15 @@ class SimpleTimeEstimator:
                 if all:
                     max_games = response.json()['count']['all']
                 seconds = max_games / (10/3)
+                seconds = max_games / (10/3)
                 return max_games, seconds
             else:
                 response.raise_for_status()
         except requests.HTTPError as e:
+            if not is_quiet:
+                if e.response.status_code == 404:
+                    print(f"An error occurred. Please verify that user '{username}' exists.")
+                print(e.response.text)
             if not is_quiet:
                 if e.response.status_code == 404:
                     print(f"An error occurred. Please verify that user '{username}' exists.")
@@ -81,6 +89,8 @@ class SimpleTimeEstimator:
     def update(self, games_analysed, is_quiet=False):
         self.current_games_analysed = games_analysed
         if ((games_analysed / self.games_to_analyse)) >= self.current_update_benchmark:
+            if not is_quiet:
+                print(f"  {games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games) ", end='\r')
             if not is_quiet:
                 print(f"  {games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games) ", end='\r')
             self.current_update_benchmark += self.benchmark_increment
@@ -144,11 +154,15 @@ def process_games(username: str, estimator: SimpleTimeEstimator, return_games=Fa
                 if return_games:
                     games.append(game_data)
             estimator.update(games_analysed_count, is_quiet)
+            estimator.update(games_analysed_count, is_quiet)
         if return_games:
             return games, results, avg_opponent_rating
         else:
             return results, avg_opponent_rating
     except requests.HTTPError as e:
+        if not is_quiet:
+            print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
+            print(e.response.text)
         if not is_quiet:
             print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
             print(e.response.text)
@@ -199,6 +213,9 @@ def extract_player_flag(username: str, is_quiet=False):
         except KeyError:
             return 'Unknown'
     except requests.HTTPError as e:
+        if not is_quiet:
+            print(f'Error: {response.status_code}')
+            response.raise_for_status()
         if not is_quiet:
             print(f'Error: {response.status_code}')
             response.raise_for_status()
