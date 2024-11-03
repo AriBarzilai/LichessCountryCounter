@@ -17,7 +17,13 @@ parser = argparse.ArgumentParser(
                     prog='python lcc.py',
                     description='\'Lichess Country Counter\' counts the number of games played against each country on Lichess.',
                     epilog="Please ensure you've set the OAUTH_2_LICHESS_KEY environment variable in the .env file. See the README for more information.")
-parser.add_argument("username", help="The lichess username whose games you'd like to analyse.", type=str)
+parser.add_argument("username",
+                    help="The lichess username whose games you'd like to analyse.",
+                    type=str)
+parser.add_argument("-n", "--number",
+                    help="Outputs only the top n most frequent countries. Default shows all.",
+                    type=int)
+parser.add_argument
 group = parser.add_mutually_exclusive_group()
 group.add_argument(
     "-m", "--max-games",
@@ -31,6 +37,40 @@ group.add_argument(
     help="Analyze all games"
 )
 
+class SimpleTimeEstimator:
+    def __init__(self, username, max_games, all=False):
+        self.current_games_analysed = 0
+        self.games_to_analyse, self.seconds_estimate = self.estimate_time_to_completion(username, max_games, all)
+        self.current_update_benchmark = 0.05
+        self.benchmark_increment = 0.05
+  
+    def estimate_time_to_completion(self, username, max_games: int, all=False):
+        try:
+            base_url = f'https://lichess.org/api/user/{username}'
+            headers = {
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {api_key}'
+            }
+            response = requests.get(base_url, headers=headers)
+            if response.status_code == 200:
+                if all:
+                    max_games = response.json()['count']['all']
+                seconds = max_games
+                return max_games, seconds
+        except requests.HTTPError as e:
+            if e.response.status_code == 404:
+                print(f"An error occurred. Please verify that user '{username}' exists.")
+            if e.response.status_code == 429:
+                print(f"You are being rate limited. Please try again later.")
+            print(e.response.text)
+            exit(e.response.status_code)
+            
+    def update(self, games_analysed):
+        self.current_games_analysed = games_analysed
+        if ((games_analysed / self.games_to_analyse)) >= self.current_update_benchmark:
+            print(f"{games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games)", end='\r')
+            self.current_update_benchmark += self.benchmark_increment
+    
 def _extract_games(username: str, count):
     """Extract the latest game of a Lichess user. This function is for testing purposes only.
     
@@ -53,7 +93,6 @@ def _extract_games(username: str, count):
                 games.append(processed_game)
         return games
     else:
-        print(f'Error: {response.status_code}')
         response.raise_for_status()
 
 def _print_games(games):
@@ -61,7 +100,7 @@ def _print_games(games):
         print(game)
         print()
 
-def process_games(username: str, return_games=False, **params):
+def process_games(username: str, estimator: SimpleTimeEstimator, return_games=False, n=0, **params):
     """Download the games of a Lichess user.
     Possible query parameters available at https://lichess.org/api#tag/Games/operation/apiGamesUser
     
@@ -73,18 +112,16 @@ def process_games(username: str, return_games=False, **params):
         'Accept': 'application/x-ndjson',
         'Authorization': f'Bearer {api_key}'
     }
-    
-    response = requests.get(base_url, headers=headers, params=params, stream=True)
-    
-    if response.status_code == 200:
+    try:
+        response = requests.get(base_url, headers=headers, params=params, stream=True)
         avg_opponent_rating = 0
         flag_counts = Counter()
         games = []
-        for c, raw_game_data in enumerate(response.iter_lines(), start=1):
+        for games_analysed_count, raw_game_data in enumerate(response.iter_lines(), start=1):
             if raw_game_data:
                 game = json.loads(raw_game_data.decode('utf-8'))
                 game_data = process_game(username, game)
-                avg_opponent_rating += ((game_data['opponent_rating'] - avg_opponent_rating) / c)
+                avg_opponent_rating += ((game_data['opponent_rating'] - avg_opponent_rating) / games_analysed_count)
                 flag = game_data['opponent_flag']
                 if flag not in flag_counts:
                     flag_counts[flag] = 1
@@ -92,14 +129,16 @@ def process_games(username: str, return_games=False, **params):
                     flag_counts[flag] += 1
                 if return_games:
                     games.append(game_data)
-        flag_counts = flag_counts.most_common() # Sort the flags by frequency
+            estimator.update(games_analysed_count)
+        flag_counts = flag_counts.most_common(n) # Sort the flags by frequency, displays the top n most frequent flags, or all if n=0
         if return_games:
             return games, flag_counts, avg_opponent_rating
         else:
             return flag_counts, avg_opponent_rating
-    else:
-        print(f'Error: {response.status_code}')
-        response.raise_for_status()
+    except requests.HTTPError as e:
+        print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
+        print(e.response.text)
+        return flag_counts, avg_opponent_rating
 
 def process_game(username: str, game):
     """Process a user's game to extract only the relevant information. Returns as a dictionary.
@@ -138,16 +177,14 @@ def extract_player_flag(username: str):
         'Accept': 'application/json',
         'Authorization': f'Bearer {api_key}'
     }
-    
-    response = requests.get(base_url, headers=headers)
-    
-    if response.status_code == 200:
+    try:
+        response = requests.get(base_url, headers=headers)
         user_data = response.json()
         try:
             return user_data['profile']['flag']
         except KeyError:
             return 'Unknown'
-    else:
+    except requests.HTTPError as e:
         print(f'Error: {response.status_code}')
         response.raise_for_status()
 
@@ -163,37 +200,19 @@ def process_player_colors(game, username):
         opponent_color = 'white'   
     return color, opponent_color
 
-def estimate_time_to_completion(username, max_games: int, all=False):
-    try:
-        base_url = f'https://lichess.org/api/user/{username}'
-        headers = {
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {api_key}'
-        }
-        response = requests.get(base_url, headers=headers)
-        if response.status_code == 200:
-            if all:
-                max_games = response.json()['count']['all']
-            seconds = max_games / 30
-            return seconds
-        else:
-            print(f'Error: {response.status_code}')
-            response.raise_for_status()
-    except Exception as e:
-        print(f"An error occurred. Please verify that user '{username}' exists.")
-
              
 def main():
     args = parser.parse_args()
-    seconds = estimate_time_to_completion(args.username, args.max_games)
-    if seconds:
-        print (f"Loading... Estimated time to completion: {20*seconds:.1f} seconds.")
+    estimator = SimpleTimeEstimator(args.username, args.max_games, args.all)
+
+    if estimator.seconds_estimate:
+        print (f"Loading... Estimated time to completion: {estimator.seconds_estimate:.0f} seconds.")
         if args.all:
-            flag_counts, avg_rating = process_games(args.username, moves=False)
+            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, n=args.number, moves=False)
         else:
-            flag_counts, avg_rating = process_games(args.username, max=args.max_games, moves=False)
+            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, n=args.number, max=args.max_games, moves=False)
         print(flag_counts)
-        print("Avg. Rating:" + str(avg_rating))
+        print(f"Avg. Rating: {avg_rating:.0f}")
 
 if __name__ == '__main__':
     main()
