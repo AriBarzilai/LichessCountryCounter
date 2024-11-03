@@ -17,6 +17,9 @@ parser = argparse.ArgumentParser(
                     prog='python lcc.py',
                     description='\'Lichess Country Counter\' counts the number of games played against each country on Lichess.',
                     epilog="Please ensure you've set the OAUTH_2_LICHESS_KEY environment variable in the .env file. See the README for more information.")
+parser.add_argument("-v", "--version",
+                    action='version',
+                    version='v1.01')
 parser.add_argument("username",
                     help="The lichess username whose games you'd like to analyse.",
                     type=str)
@@ -118,7 +121,7 @@ def process_games(username: str, estimator: SimpleTimeEstimator, return_games=Fa
     try:
         response = requests.get(base_url, headers=headers, params=params, stream=True)
         avg_opponent_rating = 0
-        flag_counts = Counter()
+        results = Counter()
         games = []
         for games_analysed_count, raw_game_data in enumerate(response.iter_lines(), start=1):
             if raw_game_data:
@@ -126,22 +129,21 @@ def process_games(username: str, estimator: SimpleTimeEstimator, return_games=Fa
                 game_data = process_game(username, game)
                 avg_opponent_rating += ((game_data['opponent_rating'] - avg_opponent_rating) / games_analysed_count)
                 flag = game_data['opponent_flag']
-                if flag not in flag_counts:
-                    flag_counts[flag] = 1
+                if flag not in results:
+                    results[flag] = 1
                 else:
-                    flag_counts[flag] += 1
+                    results[flag] += 1
                 if return_games:
                     games.append(game_data)
             estimator.update(games_analysed_count)
-        flag_counts = flag_counts.most_common(n) # Sort the flags by frequency, displays the top n most frequent flags, or all if n=0
         if return_games:
-            return games, flag_counts, avg_opponent_rating
+            return games, results, avg_opponent_rating
         else:
-            return flag_counts, avg_opponent_rating
+            return results, avg_opponent_rating
     except requests.HTTPError as e:
         print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
         print(e.response.text)
-        return flag_counts, avg_opponent_rating
+        return results, avg_opponent_rating
 
 def process_game(username: str, game):
     """Process a user's game to extract only the relevant information. Returns as a dictionary.
@@ -203,6 +205,12 @@ def process_player_colors(game, username):
         opponent_color = 'white'   
     return color, opponent_color
 
+def process_results(results: Counter, n: int, hide_unknown: bool):
+    if n:
+        results = results.most_common(n)
+    if hide_unknown:
+        results = {k: v for k, v in results.items() if k != 'Unknown'}
+    return results
              
 def main():
     args = parser.parse_args()
@@ -211,9 +219,10 @@ def main():
     if estimator.seconds_estimate:
         print (f"Loading... Estimated time to completion: {estimator.seconds_estimate:.0f} seconds.")
         if args.all:
-            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, n=args.number, moves=False)
+            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator,moves=False)
         else:
-            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, n=args.number, max=args.max_games, moves=False)
+            flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, max=args.max_games, moves=False)
+        flag_counts = process_results(flag_counts, args.number, args.hide_unknown)
         print(flag_counts)
         print(f"Avg. Rating: {avg_rating:.0f}")
 
