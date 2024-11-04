@@ -88,9 +88,7 @@ class SimpleTimeEstimator:
             
     def update(self, games_analysed, is_quiet=False):
         self.current_games_analysed = games_analysed
-        if ((games_analysed / self.games_to_analyse)) >= self.current_update_benchmark:
-            if not is_quiet:
-                print(f"  {games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games) ", end='\r')
+        if ((games_analysed / self.games_to_analyse)) >= self.current_update_benchmark or games_analysed % 100 == 0:
             if not is_quiet:
                 print(f"  {games_analysed / self.games_to_analyse * 100:.0f}% complete ({self.current_games_analysed} games) ", end='\r')
             self.current_update_benchmark += self.benchmark_increment
@@ -166,7 +164,10 @@ def process_games(username: str, estimator: SimpleTimeEstimator, return_games=Fa
         if not is_quiet:
             print(f"Analysed {estimator.current_games_analysed} games before receiving Error {response.status_code}.")
             print(e.response.text)
-        return results, avg_opponent_rating
+    except Exception as e:
+            print(f"Analysed {estimator.current_games_analysed} games before receiving Error.")
+            print(e)
+    return results, avg_opponent_rating
 
 def process_game(username: str, game):
     """Process a user's game to extract only the relevant information. Returns as a dictionary.
@@ -233,10 +234,12 @@ def process_player_colors(game, username):
     return color, opponent_color
 
 def process_results(results: Counter, n: int, hide_unknown: bool):
+    if hide_unknown:
+        results.pop('Unknown', None)
     if n:
         results = results.most_common(n)
-    if hide_unknown:
-        results = {k: v for k, v in results.items() if k != 'Unknown'}
+    else:
+        results = results.most_common()
     return results
 def verify_auth():
     url = "https://lichess.org/api/account"
@@ -256,7 +259,7 @@ def execute_workflow():
     
     if estimator.seconds_estimate:
         if not is_quiet:
-            print (f"Loading... Estimated time to completion: {estimator.seconds_estimate:.0f} seconds.")
+            print (f"Loading... Estimated time to analyze {estimator.games_to_analyse} games: {estimator.seconds_estimate:.0f} seconds.")
         if args.all:
             flag_counts, avg_rating = process_games(username=args.username, estimator=estimator, is_quiet=is_quiet, moves=False)
         else:
@@ -264,7 +267,7 @@ def execute_workflow():
         flag_counts = process_results(flag_counts, args.number, args.hide_unknown)
         if not is_quiet:
             print(' ', end='\r')
-            print(f"Done! Time: {time.time() - estimator.start_time:.0f} seconds.".ljust(40))
+            print(f"Done! Time: {time.time() - estimator.start_time:.0f} seconds.".ljust(50))
             print(f"Avg. Rating: {avg_rating:.0f}")
         print(flag_counts)           
              
